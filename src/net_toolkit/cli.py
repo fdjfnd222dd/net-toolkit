@@ -11,7 +11,7 @@ app = typer.Typer(
     name="nt",
     help="Networking utilities for lab work: subnetting, sweeps, backups, audits, pcaps.",
     no_args_is_help=True,
-    add_completion=False,
+    add_completion=True,  # nt --install-completion (bash, zsh, fish, PowerShell)
     rich_markup_mode="rich",
 )
 
