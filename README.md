@@ -306,7 +306,7 @@ python -m venv .venv
 
 | Command | What it does | Useful options |
 | --- | --- | --- |
-| `nt subnet CIDR` | Network, broadcast, usable range, host count, wildcard mask, scope and class. Accepts `10.20.1.5/22` or `10.20.1.5 255.255.252.0`. | `--split N`, `--vlsm 50,20,10` or `--vlsm Sales=50,Eng=20` |
+| `nt subnet CIDR` | Network, broadcast, usable range, host count, wildcard mask, scope and class. Accepts `10.20.1.5/22` or `10.20.1.5 255.255.252.0`. | `--split N`, `--vlsm 50,20,10` or `--vlsm Sales=50,Eng=20`, `--json` |
 | `nt scan CIDR` | Ping plus TCP connect sweep with a progress bar. A port that answers RST still proves the host is up. | `--ports common\|22,80,8000-8010`, `--rate 100`, `--timeout`, `--no-icmp`, `--json`, `--i-own-this`, `--max-hosts` |
 | `nt backup -i hosts.yml` | Pulls `show running-config` from Cisco IOS/IOS-XE/NX-OS and Arista EOS with Netmiko into `backups/<host>/<date>.cfg`. Skips the write when nothing changed. | `--out DIR`, `--only NAME`, `--workers` |
 | `nt diff HOST` | Unified diff of the two newest backups for HOST, coloured. | `--dir DIR`, `-U N` |

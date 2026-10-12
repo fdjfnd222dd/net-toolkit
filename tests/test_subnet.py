@@ -165,6 +165,25 @@ class TestCli:
         assert result.exit_code == 0
         assert "VLSM in 10.20.0.0/22" in result.output and "WAN" in result.output
 
+    def test_json(self, runner):
+        import json
+
+        result = runner.invoke(app, ["subnet", "10.20.1.5/22", "--split", "2", "--vlsm", "A=50,10", "--json"])
+        data = json.loads(result.output)
+        assert data["address"] == "10.20.1.5" and data["network"] == "10.20.0.0/22"
+        assert data["usable_hosts"] == 1022 and data["class"] == "A"
+        assert [s["network"] for s in data["split"]] == ["10.20.0.0/23", "10.20.2.0/23"]
+        assert data["vlsm"][0] == {"name": "A", "requested": 50, "subnet": "10.20.0.0/26",
+                                   "usable": 62, "waste": 12}
+        assert data["free"][-1] == "10.20.2.0/23"
+
+    def test_json_demo_and_ipv6(self, runner):
+        import json
+
+        assert json.loads(runner.invoke(app, ["subnet", "--demo", "--json"]).output)["vlsm"]
+        v6 = json.loads(runner.invoke(app, ["subnet", "2001:db8::/64", "--json"]).output)
+        assert v6["broadcast"] is None and v6["class"] is None
+
     def test_error_exit_code(self, runner):
         result = runner.invoke(app, ["subnet", "10.0.0.0/30", "--vlsm", "50"])
         assert result.exit_code == 2
