@@ -50,6 +50,9 @@ def parse(cidr: str) -> tuple[Address, Network]:
     return iface.ip, iface.network
 
 
+RFC1918 = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+
+
 def scope_of(network: Network) -> str:
     """Human label for the address block, checked from most to least specific."""
     if network.is_loopback:
@@ -64,10 +67,15 @@ def scope_of(network: Network) -> str:
         doc_net = ipaddress.ip_network(doc)
         if doc_net.version == network.version and network.subnet_of(doc_net):
             return "documentation (RFC 5737/3849)"
-    if network.is_private:
-        return "private (RFC 1918)" if network.version == 4 else "private (ULA)"
     if network.is_reserved or network.is_unspecified:
         return "reserved"
+    for block in RFC1918:
+        if network.version == 4 and network.subnet_of(block):
+            return "private (RFC 1918)"
+    if network.version == 6 and network.subnet_of(ipaddress.ip_network("fc00::/7")):
+        return "private (ULA)"
+    if network.is_private:  # benchmarking, protocol assignments, this-network, ...
+        return "special-use (not routed)"
     return "public"
 
 
