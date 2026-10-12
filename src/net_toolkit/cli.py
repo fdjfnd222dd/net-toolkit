@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from net_toolkit import __version__
-from net_toolkit.commands import audit_cmd, backup_cmd, pcap_cmd, scan_cmd, subnet_cmd
+from net_toolkit.commands import audit_cmd, backup_cmd, pcap_cmd, ping_cmd, scan_cmd, subnet_cmd
 
 app = typer.Typer(
     name="nt",
@@ -37,6 +37,7 @@ app.command("backup")(backup_cmd.backup_command)
 app.command("diff")(backup_cmd.diff_command)
 app.command("audit")(audit_cmd.audit_command)
 app.add_typer(pcap_cmd.pcap_app, name="pcap")
+app.command("ping-matrix")(ping_cmd.ping_matrix_command)
 
 
 if __name__ == "__main__":  # pragma: no cover

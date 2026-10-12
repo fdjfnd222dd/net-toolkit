@@ -18,7 +18,7 @@ PLATFORMS = {  # accepted spellings -> Netmiko device_type
     "cisco_nxos": "cisco_nxos", "nxos": "cisco_nxos", "nx-os": "cisco_nxos",
     "arista_eos": "arista_eos", "eos": "arista_eos",
 }
-SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")  # also used as a directory name
+SAFE_NAME = re.compile(r"^[A-Za-z0-9:][A-Za-z0-9._:-]*$")  # also a directory name: no "/" or leading "."
 
 
 class InventoryError(ValueError):
