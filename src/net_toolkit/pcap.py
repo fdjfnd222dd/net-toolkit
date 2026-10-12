@@ -179,6 +179,7 @@ class DnsMessage:
     qtype: str
     response: bool
     rcode: int
+    answers: list[str] = field(default_factory=list)  # A/AAAA addresses in a response
 
 
 @dataclass
@@ -194,6 +195,7 @@ class Packet:
     tcp_flags: int = 0
     vlan: int | None = None
     dns: DnsMessage | None = None
+    payload: bytes = b""  # TCP/UDP payload, kept only while the packet is being summarised
 
     @property
     def service(self) -> str | None:
@@ -286,28 +288,102 @@ def _decode_l4(pkt: Packet, proto: int, data: bytes) -> None:
     if proto == 6 and len(data) >= 20:
         pkt.sport, pkt.dport = struct.unpack("!HH", data[:4])
         pkt.tcp_flags = data[13]
-        if 53 in (pkt.sport, pkt.dport):
-            payload = data[(data[12] >> 4) * 4:]
-            if len(payload) > 2:  # DNS over TCP has a 2-byte length prefix
-                pkt.dns = parse_dns(payload[2:])
+        pkt.payload = data[(data[12] >> 4) * 4:]
+        if 53 in (pkt.sport, pkt.dport) and len(pkt.payload) > 2:
+            pkt.dns = parse_dns(pkt.payload[2:])  # DNS over TCP has a 2-byte length prefix
     elif proto == 17 and len(data) >= 8:
         pkt.sport, pkt.dport = struct.unpack("!HH", data[:4])
+        pkt.payload = data[8:]
         if pkt.sport in DNS_PORTS or pkt.dport in DNS_PORTS:
-            pkt.dns = parse_dns(data[8:])
+            pkt.dns = parse_dns(pkt.payload)
 
 
 def parse_dns(data: bytes) -> DnsMessage | None:
-    """Pull the first question out of a DNS message; None if it does not parse."""
+    """Pull the first question (and any A/AAAA answers) out of a DNS message."""
     if len(data) < 12:
         return None
-    flags, qdcount = struct.unpack("!HH", data[2:6])
+    flags, qdcount, ancount = struct.unpack("!HHH", data[2:8])
     if qdcount == 0:
         return None
     name, offset = _dns_name(data, 12)
     if name is None or offset + 4 > len(data):
         return None
     qtype = struct.unpack("!H", data[offset:offset + 2])[0]
-    return DnsMessage(name, DNS_TYPES.get(qtype, f"TYPE{qtype}"), bool(flags & 0x8000), flags & 0x000F)
+    message = DnsMessage(name, DNS_TYPES.get(qtype, f"TYPE{qtype}"), bool(flags & 0x8000), flags & 0x000F)
+    offset += 4
+    for _ in range(qdcount - 1):  # almost always zero
+        _, offset = _dns_name(data, offset)
+        offset += 4
+    for _ in range(ancount):
+        rr_name, offset = _dns_name(data, offset)
+        if rr_name is None or offset + 10 > len(data):
+            break
+        rtype, _, _, rdlength = struct.unpack("!HHIH", data[offset:offset + 10])
+        rdata = data[offset + 10:offset + 10 + rdlength]
+        offset += 10 + rdlength
+        if rtype == 1 and len(rdata) == 4:
+            message.answers.append(str(ipaddress.IPv4Address(rdata)))
+        elif rtype == 28 and len(rdata) == 16:
+            message.answers.append(str(ipaddress.IPv6Address(rdata)))
+    return message
+
+
+# --- application names: TLS SNI, HTTP Host, QUIC -----------------------------------------
+
+HTTP_METHODS = (b"GET ", b"POST ", b"HEAD ", b"PUT ", b"DELETE ", b"OPTIONS ", b"PATCH ", b"CONNECT ")
+
+
+def tls_record_length(data: bytes) -> int | None:
+    """Total bytes of the TLS record if `data` starts a ClientHello, else None."""
+    if len(data) >= 6 and data[0] == 0x16 and data[1] == 0x03 and data[5] == 0x01:
+        return 5 + struct.unpack("!H", data[3:5])[0]
+    return None
+
+
+def parse_sni(data: bytes) -> str | None:
+    """Server name from a TLS ClientHello (the record header included)."""
+    if tls_record_length(data) is None:
+        return None
+    body = data[9:]  # 5-byte record header + 4-byte handshake header
+    offset = 2 + 32  # client_version, random
+    try:
+        offset += 1 + body[offset]  # session id
+        offset += 2 + struct.unpack("!H", body[offset:offset + 2])[0]  # cipher suites
+        offset += 1 + body[offset]  # compression methods
+        end = offset + 2 + struct.unpack("!H", body[offset:offset + 2])[0]
+        offset += 2
+        while offset + 4 <= min(end, len(body)):
+            ext_type, ext_len = struct.unpack("!HH", body[offset:offset + 4])
+            if ext_type == 0:  # server_name: list length, type (0 = host), name length, name
+                name_len = struct.unpack("!H", body[offset + 7:offset + 9])[0]
+                name = body[offset + 9:offset + 9 + name_len]
+                if len(name) == name_len and name:
+                    return name.decode("ascii", errors="replace").lower()
+                return None
+            offset += 4 + ext_len
+    except (IndexError, struct.error):
+        return None
+    return None
+
+
+def parse_http_host(data: bytes) -> str | None:
+    if not data.startswith(HTTP_METHODS):
+        return None
+    for line in data[:4096].split(b"\r\n")[1:]:
+        if not line:
+            break
+        key, _, value = line.partition(b":")
+        if key.strip().lower() == b"host":
+            host = value.strip().decode("ascii", errors="replace").lower()
+            return host.rsplit(":", 1)[0] if host.count(":") == 1 else host or None
+    return None
+
+
+def is_quic_initial(pkt: Packet) -> bool:
+    """Client-to-server QUIC long-header Initial packet (the name inside is encrypted)."""
+    data = pkt.payload
+    return (pkt.proto == "UDP" and pkt.dport == 443 and len(data) >= 5
+            and data[0] & 0xC0 == 0xC0 and data[1:5] != b"\x00\x00\x00\x00")
 
 
 def _dns_name(data: bytes, offset: int) -> tuple[str | None, int]:
@@ -349,6 +425,15 @@ class HostStats:
 
 
 @dataclass
+class SiteStats:
+    connections: int = 0
+    via: set[str] = field(default_factory=set)
+
+
+MAX_PENDING_HELLOS = 4096  # half-received ClientHellos we are willing to buffer
+
+
+@dataclass
 class Summary:
     source: str
     format: str = "?"
@@ -365,6 +450,10 @@ class Summary:
     dns_queries: Counter[tuple[str, str]] = field(default_factory=Counter)
     dns_nxdomain: Counter[str] = field(default_factory=Counter)
     resets: Counter[tuple[str, str, int]] = field(default_factory=Counter)
+    sites: dict[str, SiteStats] = field(default_factory=dict)
+    ip_names: dict[str, Counter[str]] = field(default_factory=dict)  # server IP -> names seen
+    _pending: dict[tuple, tuple[bytearray, int]] = field(default_factory=dict, repr=False)
+    _quic_flows: set[tuple] = field(default_factory=set, repr=False)
 
     @property
     def duration(self) -> float:
@@ -393,10 +482,72 @@ class Summary:
             self.dns_queries[(pkt.dns.name, pkt.dns.qtype)] += 1
         if pkt.dns and pkt.dns.response and pkt.dns.rcode == 3:
             self.dns_nxdomain[pkt.dns.name] += 1
+        if pkt.dns and pkt.dns.response:
+            for address in pkt.dns.answers:
+                self._name(address, pkt.dns.name, weight=0)
+        if pkt.payload and pkt.src and pkt.dst:
+            self._application(pkt)
         if pkt.tcp_flags & TCP_RST and pkt.src and pkt.dst and pkt.sport and pkt.dport:
             # the side sending RST is usually the server refusing or tearing down
             port = pkt.sport if (pkt.sport in SERVICES or pkt.sport < pkt.dport) else pkt.dport
             self.resets[(pkt.src, pkt.dst, port)] += 1
+
+    def _name(self, address: str, name: str, weight: int = 1) -> None:
+        names = self.ip_names.setdefault(address, Counter())
+        names[name] += weight  # a DNS answer only seeds the name; real connections outvote it
+
+    def _site(self, name: str, via: str, server: str) -> None:
+        site = self.sites.setdefault(name, SiteStats())
+        site.connections += 1
+        site.via.add(via)
+        self._name(server, name)
+
+    def _application(self, pkt: Packet) -> None:
+        flow = (pkt.src, pkt.sport, pkt.dst, pkt.dport)
+        if pkt.proto == "TCP":
+            if flow in self._pending:  # ClientHello bigger than one segment: keep collecting
+                buffer, needed = self._pending[flow]
+                buffer += pkt.payload
+                if len(buffer) >= needed:
+                    del self._pending[flow]
+                    self._hello(bytes(buffer), pkt)
+                return
+            needed = tls_record_length(pkt.payload)
+            if needed is not None:
+                if len(pkt.payload) >= needed:
+                    self._hello(pkt.payload, pkt)
+                elif len(self._pending) < MAX_PENDING_HELLOS:
+                    self._pending[flow] = (bytearray(pkt.payload), needed)
+                return
+            host = parse_http_host(pkt.payload)
+            if host:
+                self._site(host, "http", pkt.dst)  # type: ignore[arg-type]
+        elif is_quic_initial(pkt) and flow not in self._quic_flows:
+            self._quic_flows.add(flow)
+            self._site(self.name_for(pkt.dst) or pkt.dst, "quic", pkt.dst)  # type: ignore[arg-type]
+
+    def _hello(self, data: bytes, pkt: Packet) -> None:
+        sni = parse_sni(data)
+        if sni:
+            self._site(sni, "tls", pkt.dst)  # type: ignore[arg-type]
+
+    def name_for(self, address: str | None) -> str | None:
+        names = self.ip_names.get(address or "")
+        return names.most_common(1)[0][0] if names else None
+
+    def site_bytes(self) -> Counter[str]:
+        """Traffic per site, giving each server IP's bytes to the name it was used for most."""
+        totals: Counter[str] = Counter()
+        for address, stats in self.hosts.items():
+            name = self.name_for(address)
+            if name in self.sites:
+                totals[name] += stats.total
+        return totals
+
+    def top_sites(self, n: int) -> list[tuple[str, SiteStats, int]]:
+        volume = self.site_bytes()
+        ranked = sorted(self.sites.items(), key=lambda kv: (-volume[kv[0]], -kv[1].connections, kv[0]))
+        return [(name, stats, volume[name]) for name, stats in ranked[:n]]
 
     def top_hosts(self, n: int) -> list[tuple[str, HostStats]]:
         return sorted(self.hosts.items(), key=lambda kv: (-kv[1].total, kv[0]))[:n]
@@ -420,6 +571,10 @@ class Summary:
             ],
             "services": dict(self.services.most_common(top)),
             "vlans": {str(k): v for k, v in sorted(self.vlans.items())},
+            "sites": [
+                {"site": name, "connections": s.connections, "bytes": volume, "via": sorted(s.via)}
+                for name, s, volume in self.top_sites(top)
+            ],
             "dns_queries": [
                 {"name": name, "type": qtype, "count": c, "nxdomain": self.dns_nxdomain[name]}
                 for (name, qtype), c in self.dns_queries.most_common(top)
