@@ -192,6 +192,10 @@ class TestCli:
     def test_missing_argument(self, runner):
         assert runner.invoke(app, ["subnet"]).exit_code == 2
 
+    def test_completion_options_exposed(self, runner):
+        result = runner.invoke(app, ["--help"])
+        assert "--install-completion" in result.output and "--show-completion" in result.output
+
     def test_version(self, runner):
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0 and result.output.startswith("nt ")

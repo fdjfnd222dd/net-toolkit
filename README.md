@@ -294,6 +294,12 @@ pipx install .
 nt --help
 ```
 
+Tab completion for commands and options (bash, zsh, fish or PowerShell):
+
+```bash
+nt --install-completion
+```
+
 For development, use a repo-local virtual environment:
 
 ```bash
