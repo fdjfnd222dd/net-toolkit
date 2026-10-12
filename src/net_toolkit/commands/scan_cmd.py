@@ -35,16 +35,14 @@ def scan_command(
     demo: bool = typer.Option(False, "--demo", help="Sweep a canned lab; no packets are sent."),
 ) -> None:
     """ICMP + TCP connect sweep with a rate limit. Refuses public ranges unless --i-own-this."""
+    if demo:
+        target = scan.DEMO_NETWORK
+    if not target:
+        raise typer.BadParameter("give a prefix to scan (or use --demo)", param_hint="TARGET")
     try:
         port_list = scan.parse_ports(ports)
-        if demo:
-            target = scan.DEMO_NETWORK
-        if not target:
-            raise typer.BadParameter("give a prefix to scan (or use --demo)", param_hint="TARGET")
         network = scan.check_target(target, i_own_this, max_hosts)
-    except (ValueError, scan.ScanRefused) as exc:
-        if isinstance(exc, typer.BadParameter):
-            raise
+    except ValueError as exc:  # ScanRefused is a ValueError too
         err_console.print(f"[bold red]refused:[/bold red] {exc}")
         raise typer.Exit(2) from exc
 
