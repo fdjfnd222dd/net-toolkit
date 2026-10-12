@@ -53,19 +53,26 @@ free: 10.20.1.116/30, 10.20.1.120/29, 10.20.1.128/25, 10.20.2.0/23
 ```text
 $ nt scan --demo
 scan 10.10.10.0/24
-┏━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ host        ┃     icmp ┃ open tcp ports                        ┃ note                            ┃
-┡━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ 10.10.10.1  │  0.61 ms │ 22/ssh, 179/bgp, 443/https            │                                 │
-│ 10.10.10.2  │  0.84 ms │ 22/ssh, 830/netconf                   │                                 │
-│ 10.10.10.10 │  1.12 ms │ 53/dns, 135/msrpc, 139/netbios,       │                                 │
-│             │          │ 389/ldap, 445/smb, 636/ldaps          │                                 │
-│ 10.10.10.21 │  3.40 ms │ 3389/rdp                              │                                 │
-│ 10.10.10.22 │ no reply │ 22/ssh, 80/http                       │ ICMP filtered, alive via TCP    │
-│ 10.10.10.40 │  2.05 ms │ 80/http, 443/https, 8443/https-alt    │                                 │
-│ 10.10.10.50 │  0.97 ms │ 22/ssh, 5432/postgres                 │                                 │
-│ 10.10.10.60 │ 12.80 ms │ -                                     │ alive, every probed port closed │
-└─────────────┴──────────┴───────────────────────────────────────┴─────────────────────────────────┘
+┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ host        ┃ device                ┃     icmp ┃ open tcp ports         ┃ note                   ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 10.10.10.1  │ core-gw               │  0.61 ms │ 22/ssh, 179/bgp,       │ default gateway        │
+│             │ Cisco Systems         │          │ 443/https              │                        │
+│ 10.10.10.2  │ dist-sw2              │  0.84 ms │ 22/ssh, 830/netconf    │                        │
+│             │ Arista Networks       │          │                        │                        │
+│ 10.10.10.10 │ dc01                  │  1.12 ms │ 53/dns, 135/msrpc,     │                        │
+│             │ Dell                  │          │ 139/netbios, 389/ldap, │                        │
+│             │                       │          │ 445/smb, 636/ldaps     │                        │
+│ 10.10.10.21 │ LAB-PC21              │  3.40 ms │ 3389/rdp               │                        │
+│             │ Lenovo                │          │                        │                        │
+│ 10.10.10.22 │ pihole                │ no reply │ 22/ssh, 80/http        │ ICMP filtered          │
+│             │ Raspberry Pi Trading  │          │                        │                        │
+│ 10.10.10.40 │ nas01                 │  2.05 ms │ 80/http, 443/https,    │                        │
+│             │ Synology              │          │ 8443/https-alt         │                        │
+│ 10.10.10.50 │ random or virtual MAC │  0.97 ms │ 22/ssh, 5432/postgres  │                        │
+│ 10.10.10.60 │ BRW3C2AF4880160       │ 12.80 ms │ -                      │ all probed ports       │
+│             │ Brother Industries    │          │                        │ closed                 │
+└─────────────┴───────────────────────┴──────────┴────────────────────────┴────────────────────────┘
 8/254 hosts up, 6,350 probes in 0.2s
 ```
 
@@ -313,12 +320,16 @@ python -m venv .venv
 | Command | What it does | Useful options |
 | --- | --- | --- |
 | `nt subnet CIDR` | Network, broadcast, usable range, host count, wildcard mask, scope and class. Accepts `10.20.1.5/22` or `10.20.1.5 255.255.252.0`. | `--split N`, `--vlsm 50,20,10` or `--vlsm Sales=50,Eng=20`, `--json` |
-| `nt scan CIDR` | Ping plus TCP connect sweep with a progress bar. A port that answers RST still proves the host is up. | `--ports common\|22,80,8000-8010`, `--rate 100`, `--timeout`, `--no-icmp`, `--json`, `--i-own-this`, `--max-hosts` |
+| `nt scan CIDR` | Ping plus TCP connect sweep with a progress bar. A port that answers RST still proves the host is up. Live hosts get a name (reverse DNS, mDNS, NetBIOS) and the maker of their network card (MAC vendor), and your own machine and the default gateway are marked. | `--ports common\|22,80,8000-8010`, `--rate 100`, `--timeout`, `--no-icmp`, `--no-names`, `--json`, `--i-own-this`, `--max-hosts` |
 | `nt backup -i hosts.yml` | Pulls `show running-config` from Cisco IOS/IOS-XE/NX-OS and Arista EOS with Netmiko into `backups/<host>/<date>.cfg`. Skips the write when nothing changed. | `--out DIR`, `--only NAME`, `--workers` |
 | `nt diff HOST` | Unified diff of the two newest backups for HOST, coloured. | `--dir DIR`, `-U N` |
 | `nt audit FILE...` | Checks for telnet on vty lines, missing `service password-encryption`, `enable password`, SSHv1, VLAN 1 on trunks, no remote syslog, no NTP, weak or unrestricted SNMP communities, unused ACLs, the HTTP server, vty lines with no ACL, and lines that never time out (`exec-timeout 0`). | `--json`, `--min-severity`, `--fail-on high` (exits 1 so CI can gate on it) |
 | `nt pcap summary FILE` | Top talkers, protocols, services, 802.1Q VLANs, DNS queries (with NXDOMAIN) and TCP resets, from pcap or pcapng. | `--top N`, `--json` |
 | `nt ping-matrix hosts.yml` | Pings every host for N rounds and reports loss, min/avg/max, jitter and a sparkline. | `--rounds N`, `--interval`, `--watch` |
+
+### How `nt scan` names devices
+
+MAC addresses come from your computer's ARP table, which the sweep fills in, so they only show up for devices on the same LAN as you. Phones and some laptops use a random "private" MAC per network, and VMs use made-up ones; both show as `random or virtual MAC` rather than as a guessed vendor. Names are best effort: reverse DNS first (many routers know DHCP hostnames), then an mDNS query sent straight to the device (Apple, Android, Chromecast, printers, Linux), then a NetBIOS status query (Windows). Devices that are asleep or firewalled stay unnamed.
 
 ### Inventory (`hosts.yml`)
 
@@ -352,6 +363,7 @@ Passwords are never read from the file. If the named environment variable is uns
 | `examples/backups/CORE-SW1/` | Two dated backups of the same switch, a week apart, for `nt diff`. |
 | `examples/sample.pcap` | 91 invented packets: ARP, DNS (with one NXDOMAIN typo), HTTPS/HTTP/SSH sessions, refused telnet and RDP, ICMP, NTP, syslog, SNMP, OSPF hellos, tagged SIP and some IPv6. |
 | `scripts/make_sample_pcap.py` | Rebuilds `sample.pcap` with Scapy. Its timestamps are fixed, so every run produces the same file byte for byte. |
+| `src/net_toolkit/data/oui.tsv.gz` | The IEEE registry of MAC address prefixes (about 40,000 vendors), used offline by `nt scan`. Rebuild it with `python scripts/update_oui.py`. |
 
 ## Why I built it
 
