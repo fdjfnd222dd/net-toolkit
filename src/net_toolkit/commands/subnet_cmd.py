@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import typer
 from rich.table import Table
 
@@ -15,16 +17,21 @@ def subnet_command(
     cidr: str = typer.Argument(None, help="Prefix such as 10.20.0.0/22 or '10.20.1.5 255.255.252.0'."),
     split: int = typer.Option(None, "--split", "-s", help="Carve into N equal subnets."),
     vlsm: str = typer.Option(None, "--vlsm", "-v", help="Host counts, e.g. 50,20,10 or Sales=50,Eng=20."),
+    as_json: bool = typer.Option(False, "--json", help="Print JSON instead of tables."),
     demo: bool = typer.Option(False, "--demo", help="Run on a canned example."),
 ) -> None:
     """Network, broadcast, usable range, wildcard mask, equal splits and VLSM."""
     if demo:
         cidr, split, vlsm = DEMO_ARGS
-        console.print(f"[dim]demo: nt subnet {cidr} --split {split} --vlsm {vlsm}[/dim]\n")
+        if not as_json:
+            console.print(f"[dim]demo: nt subnet {cidr} --split {split} --vlsm {vlsm}[/dim]\n")
     if not cidr:
         raise typer.BadParameter("a prefix is required (or use --demo)", param_hint="CIDR")
     try:
         info = calc.describe(cidr)
+        if as_json:
+            typer.echo(json.dumps(to_dict(info, split, vlsm), indent=2))
+            return
         console.print(render_info(info))
         if split:
             console.print(render_split(info.network, split))
@@ -33,6 +40,37 @@ def subnet_command(
     except ValueError as exc:
         err_console.print(f"[bold red]error:[/bold red] {exc}")
         raise typer.Exit(2) from exc
+
+
+def _info_dict(info: calc.SubnetInfo) -> dict:
+    return {
+        "network": str(info.network),
+        "netmask": str(info.netmask),
+        "wildcard": str(info.wildcard),
+        "broadcast": str(info.broadcast) if info.broadcast is not None else None,
+        "first_usable": str(info.first_usable),
+        "last_usable": str(info.last_usable),
+        "usable_hosts": info.usable,
+        "total_addresses": info.total,
+        "scope": info.scope,
+        "class": info.ip_class,
+    }
+
+
+def to_dict(info: calc.SubnetInfo, split: int | None, vlsm: str | None) -> dict:
+    """Same data as the tables, for scripts (e.g. piping into an IPAM import)."""
+    data = {"address": str(info.address), **_info_dict(info)}
+    if split:
+        data["split"] = [_info_dict(calc.describe(str(n))) for n in calc.split(info.network, split)]
+    if vlsm:
+        allocations, free = calc.vlsm(info.network, calc.parse_vlsm(vlsm))
+        data["vlsm"] = [
+            {"name": a.name, "requested": a.requested, "subnet": str(a.subnet),
+             "usable": a.usable, "waste": a.waste}
+            for a in allocations
+        ]
+        data["free"] = [str(block) for block in free]
+    return data
 
 
 def render_info(info: calc.SubnetInfo) -> Table:
