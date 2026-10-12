@@ -138,14 +138,14 @@ def telnet_enabled(cfg: Config) -> list[Finding]:
         if transport is None:
             findings.append(Finding(
                 "telnet-enabled", Severity.MEDIUM,
-                f"'{block.text}' has no 'transport input'; older IOS defaults accept telnet",
-                "Add 'transport input ssh' under every vty line.",
+                f"'{block.text}' has no 'transport input' (older IOS allows telnet)",
+                "Add 'transport input ssh'.",
                 block.line.number, block.text,
             ))
         elif re.search(r"\b(telnet|all)\b", transport.text):
             findings.append(Finding(
                 "telnet-enabled", Severity.HIGH,
-                f"Telnet allowed on '{block.text}' (credentials cross the wire in clear text)",
+                f"Telnet allowed on '{block.text}' (clear-text logins)",
                 "Use 'transport input ssh'.",
                 transport.number, transport.text,
             ))
@@ -158,8 +158,8 @@ def password_encryption(cfg: Config) -> list[Finding]:
         return []
     return [Finding(
         "no-password-encryption", Severity.MEDIUM,
-        "'service password-encryption' is off: type 0 passwords are readable in the config",
-        "Enable 'service password-encryption' and move secrets to type 8/9 hashes.",
+        "'service password-encryption' is off; type 0 passwords readable",
+        "Enable 'service password-encryption'; use type 8/9 secrets.",
     )]
 
 
@@ -169,7 +169,7 @@ def enable_password(cfg: Config) -> list[Finding]:
         Finding(
             "enable-password", Severity.HIGH,
             "'enable password' uses reversible encryption",
-            "Replace with 'enable algorithm-type scrypt secret ...' and remove 'enable password'.",
+            "Use 'enable algorithm-type scrypt secret'.",
             line.number, "enable password <redacted>",
         )
         for line, _ in cfg.find(r"^enable\s+password\b")
@@ -188,7 +188,7 @@ def ssh_version(cfg: Config) -> list[Finding]:
     if not cfg.find(r"^ip\s+ssh\s+version\s+2\b"):
         return [Finding(
             "ssh-v1", Severity.LOW,
-            "SSH version is not pinned; the IOS default (1.99) still accepts SSHv1 clients",
+            "SSH version not pinned; default 1.99 still accepts SSHv1",
             "Set 'ip ssh version 2'.",
         )]
     return []
@@ -249,7 +249,7 @@ def vlan1_on_trunks(cfg: Config) -> list[Finding]:
             findings.append(Finding(
                 "vlan1-trunk", Severity.MEDIUM,
                 f"{block.text.split(None, 1)[1]}: " + "; ".join(reasons),
-                "Set an unused native VLAN and prune the allowed list to the VLANs in use.",
+                "Use an unused native VLAN; prune the allowed list.",
                 block.line.number, block.text,
             ))
     return findings
@@ -261,7 +261,7 @@ def remote_logging(cfg: Config) -> list[Finding]:
         return []
     return [Finding(
         "no-logging", Severity.MEDIUM, "No remote syslog server is configured",
-        "Add 'logging host <collector>' and 'logging trap informational'.",
+        "Add 'logging host <collector>'.",
     )]
 
 
@@ -270,8 +270,8 @@ def ntp_configured(cfg: Config) -> list[Finding]:
     if cfg.find(r"^ntp\s+(server|peer)\s+"):
         return []
     return [Finding(
-        "no-ntp", Severity.MEDIUM, "No NTP server: log timestamps cannot be correlated",
-        "Add 'ntp server <ip>' (ideally two) with authentication.",
+        "no-ntp", Severity.MEDIUM, "No NTP server; log timestamps cannot be trusted",
+        "Add two authenticated 'ntp server' lines.",
     )]
 
 
@@ -297,14 +297,14 @@ def snmp_communities(cfg: Config) -> list[Finding]:
             findings.append(Finding(
                 "weak-snmp", Severity.CRITICAL if mode == "RW" else Severity.HIGH,
                 f"Guessable SNMP community with {mode} access",
-                "Remove it; move to SNMPv3 authPriv, or at minimum a long random community + ACL.",
+                "Use SNMPv3 authPriv, or a long random community + ACL.",
                 line.number, evidence,
             ))
         elif acl is None:
             findings.append(Finding(
                 "weak-snmp", Severity.HIGH if mode == "RW" else Severity.MEDIUM,
                 f"SNMP {mode} community has no ACL restricting who can poll",
-                "Append a standard ACL that permits only the NMS.",
+                "Append an ACL that permits only the NMS.",
                 line.number, evidence,
             ))
     return findings
@@ -339,7 +339,7 @@ def unused_acls(cfg: Config) -> list[Finding]:
     return [
         Finding(
             "unused-acl", Severity.LOW, f"ACL '{name}' is defined but never applied",
-            "Apply it where it was meant to go, or remove it to keep the config honest.",
+            "Apply it or remove it.",
             line.number, line.text,
         )
         for name, line in defined.items()
@@ -352,7 +352,7 @@ def http_server(cfg: Config) -> list[Finding]:
     return [
         Finding(
             "http-server", Severity.MEDIUM, "Plain-text HTTP management server is enabled",
-            "Use 'no ip http server' (and 'ip http secure-server' only if the web UI is needed).",
+            "Use 'no ip http server'.",
             line.number, line.text,
         )
         for line, _ in cfg.find(r"^ip\s+http\s+server\b")
@@ -364,8 +364,8 @@ def vty_access_class(cfg: Config) -> list[Finding]:
     return [
         Finding(
             "vty-no-acl", Severity.LOW,
-            f"'{block.text}' accepts management sessions from any source",
-            "Add 'access-class <mgmt-acl> in' to restrict who can reach the vty lines.",
+            f"'{block.text}' accepts logins from any source",
+            "Add 'access-class <mgmt-acl> in'.",
             block.line.number, block.text,
         )
         for block in cfg.blocks_matching(r"^line\s+vty\b")

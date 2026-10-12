@@ -36,6 +36,10 @@ nt = "net_toolkit.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/net_toolkit"]
 
+[tool.hatch.build.targets.wheel.force-include]
+# demo data ships inside the package so `--demo` works after `pipx install .`
+"examples" = "net_toolkit/examples"
+
 [tool.hatch.build.targets.sdist]
 include = ["src", "tests", "examples", "scripts", "README.md", "LICENSE"]
 

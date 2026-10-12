@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from net_toolkit import __version__
-from net_toolkit.commands import subnet_cmd
+from net_toolkit.commands import audit_cmd, subnet_cmd
 
 app = typer.Typer(
     name="nt",
@@ -32,6 +32,7 @@ def main(
 
 
 app.command("subnet")(subnet_cmd.subnet_command)
+app.command("audit")(audit_cmd.audit_command)
 
 
 if __name__ == "__main__":  # pragma: no cover
