@@ -97,8 +97,8 @@ def diff_latest(root: Path, name: str, context: int = 3) -> tuple[Path, Path, li
     """Unified diff of the two most recent backups for one device."""
     files = history(root, name)
     if len(files) < 2:
-        found = f"only {len(files)}" if files else "no"
-        raise FileNotFoundError(f"{found} backup(s) for {name} under {root}; need two to diff")
+        found = "only one backup" if files else "no backups"
+        raise FileNotFoundError(f"{found} for {name} under {root}; need two to diff")
     old, new = files[-2], files[-1]
     lines = list(difflib.unified_diff(
         old.read_text(encoding="utf-8").splitlines(),
