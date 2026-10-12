@@ -103,10 +103,17 @@ class TestCli:
         result = runner.invoke(app, ["scan", "--demo"])
         assert result.exit_code == 0
         assert "8/254 hosts up" in result.output and "ICMP filtered" in result.output
+        assert "Cisco Systems" in result.output and "default gateway" in result.output
+        assert "random or virtual MAC" in result.output
+
+    def test_demo_without_names(self, runner):
+        result = runner.invoke(app, ["scan", "--demo", "--no-names"])
+        assert "device" not in result.output and "Cisco Systems" not in result.output
 
     def test_demo_json(self, runner):
         data = json.loads(runner.invoke(app, ["scan", "--demo", "--json", "-p", "22"]).output)
         assert data["probes"] == 254 * 2
+        assert data["hosts_up"][0]["vendor"] == "Cisco Systems" and data["hosts_up"][0]["name"] == "core-gw"
         assert [h["address"] for h in data["hosts_up"] if h["open_ports"] == [22]][:2] == ["10.10.10.1", "10.10.10.2"]
 
     def test_public_refused(self, runner):
@@ -123,5 +130,9 @@ class TestCli:
         # defaults were bound at import time, so patch the sweep defaults too
         monkeypatch.setattr(scan.sweep, "__kwdefaults__", {
             **scan.sweep.__kwdefaults__, "pinger": probes.ping, "connector": scan.probes.tcp_probe})
+        from net_toolkit import devices
+        monkeypatch.setattr(devices, "identify", lambda addrs, timeout: {
+            a: devices.Identity(name="laptop", is_self=True) for a in addrs})
         result = runner.invoke(app, ["scan", "127.0.0.1", "-p", "22,80", "--rate", "1000"])
         assert result.exit_code == 0 and "1/1 hosts up" in result.output and "<= 1000/s" in result.output
+        assert "laptop" in result.output and "this computer" in result.output

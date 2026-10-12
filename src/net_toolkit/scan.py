@@ -28,6 +28,11 @@ class HostResult:
     rtt_ms: float | None = None
     open_ports: list[int] = field(default_factory=list)
     refused: int = 0  # ports that answered RST: proves the host is alive
+    mac: str | None = None
+    vendor: str | None = None
+    name: str | None = None
+    is_self: bool = False
+    is_gateway: bool = False
 
     @property
     def up(self) -> bool:
@@ -157,3 +162,23 @@ def demo_connector(host: str, port: int, timeout: float) -> str:
     if port in open_ports:
         return probes.OPEN
     return probes.CLOSED if rst else probes.FILTERED
+
+
+DEMO_IDENTITY = {  # host -> (MAC, name); MAC prefixes are real vendor OUIs, the rest is invented
+    "10.10.10.1": ("00:00:0c:9f:f0:01", "core-gw"),
+    "10.10.10.2": ("00:1c:73:4a:10:02", "dist-sw2"),
+    "10.10.10.10": ("00:06:5b:21:7c:10", "dc01"),
+    "10.10.10.21": ("10:c5:95:3e:44:21", "LAB-PC21"),
+    "10.10.10.22": ("28:cd:c1:0b:5e:22", "pihole"),
+    "10.10.10.40": ("00:11:32:7a:90:40", "nas01"),
+    "10.10.10.50": ("52:54:00:6d:1a:50", None),
+    "10.10.10.60": ("3c:2a:f4:88:01:60", "BRW3C2AF4880160"),
+}
+
+
+def demo_neighbours() -> dict[str, str]:
+    return {ip: mac for ip, (mac, _) in DEMO_IDENTITY.items()}
+
+
+def demo_namer(ip: str, timeout: float) -> str | None:
+    return DEMO_IDENTITY.get(ip, (None, None))[1]
