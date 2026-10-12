@@ -69,8 +69,8 @@ def check_target(target: str, i_own_this: bool = False, max_hosts: int = MAX_HOS
         raise ScanRefused(f"not an IP address or prefix: {target!r}") from exc
     if not is_internal(network) and not i_own_this:
         raise ScanRefused(
-            f"{network} is not private address space (public or carrier NAT). Only scan networks you own or are "
-            "authorised to test; re-run with --i-own-this to confirm."
+            f"{network} is not private address space (public or carrier NAT). Only scan "
+            "networks you own or are authorised to test; re-run with --i-own-this to confirm."
         )
     if network.num_addresses > max_hosts:
         raise ScanRefused(
