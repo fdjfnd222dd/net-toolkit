@@ -217,30 +217,30 @@ $ nt pcap summary examples/sample.pcap --top 5
 capture
 ┌──────────────┬──────────────────────────────────────────────────────┐
 │ file         │ examples/sample.pcap (pcap)                          │
-│ packets      │ 91                                                   │
-│ bytes        │ 43.6 KB                                              │
+│ packets      │ 102                                                  │
+│ bytes        │ 54.7 KB                                              │
 │ first / last │ 2026-01-01 12:00:00 UTC  ->  2026-01-01 12:00:04 UTC │
-│ duration     │ 4.33 s  (21.0 pkt/s)                                 │
+│ duration     │ 4.37 s  (23.3 pkt/s)                                 │
 │ 802.1Q VLANs │ 20 (2 pkts)                                          │
 └──────────────┴──────────────────────────────────────────────────────┘
 top talkers
 ┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
 ┃ host          ┃ pkts sent ┃    sent ┃ received ┃   total ┃
 ┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
-│ 10.10.10.21   │        11 │   876 B │  34.6 KB │ 35.5 KB │
-│ 198.51.100.10 │        26 │ 34.2 KB │    516 B │ 34.7 KB │
-│ 10.10.10.22   │         7 │   731 B │   4.1 KB │  4.9 KB │
-│ 203.0.113.80  │         6 │  3.8 KB │    516 B │  4.3 KB │
-│ 10.10.10.23   │         8 │   757 B │   1.6 KB │  2.4 KB │
+│ 10.10.10.21   │        11 │   711 B │  34.6 KB │ 35.3 KB │
+│ 198.51.100.10 │        26 │ 34.2 KB │    351 B │ 34.5 KB │
+│ 10.10.10.23   │        10 │  2.0 KB │  11.8 KB │ 13.9 KB │
+│ 203.0.113.50  │         8 │ 10.1 KB │   1.2 KB │ 11.3 KB │
+│ 10.10.10.22   │         7 │   514 B │   4.1 KB │  4.6 KB │
 └───────────────┴───────────┴─────────┴──────────┴─────────┘
 protocols
 ┏━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━┓
 ┃ protocol ┃ packets ┃   bytes ┃ share ┃
 ┡━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━┩
-│ TCP      │      60 │ 41.3 KB │ 94.8% │
-│ UDP      │      16 │  1.5 KB │  3.3% │
-│ ICMP     │       9 │   406 B │  0.9% │
-│ OSPF     │       3 │   246 B │  0.6% │
+│ TCP      │      60 │ 40.9 KB │ 74.9% │
+│ UDP      │      27 │ 12.9 KB │ 23.7% │
+│ ICMP     │       9 │   406 B │  0.7% │
+│ OSPF     │       3 │   246 B │  0.4% │
 │ ARP      │       2 │    84 B │  0.2% │
 └──────────┴─────────┴─────────┴───────┘
 services
@@ -248,11 +248,19 @@ services
 ┃ service (by port) ┃ packets ┃
 ┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
 │ https (tcp)       │      30 │
+│ dns (udp)         │      13 │
 │ ssh (tcp)         │      12 │
-│ dns (udp)         │      11 │
 │ http (tcp)        │      10 │
-│ telnet (tcp)      │       6 │
+│ https (udp)       │       9 │
 └───────────────────┴─────────┘
+sites
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┓
+┃ site                 ┃ connections ┃   bytes ┃ seen via ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━┩
+│ www.example.com      │           1 │ 34.5 KB │ tls      │
+│ video.example.org    │           1 │ 11.3 KB │ quic     │
+│ intranet.example.net │           1 │  4.1 KB │ http     │
+└──────────────────────┴─────────────┴─────────┴──────────┘
 DNS queries
 ┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
 ┃ name                  ┃ type ┃ count ┃ NXDOMAIN ┃
@@ -261,7 +269,7 @@ DNS queries
 │ intranet.example.net  │ A    │     1 │        - │
 │ updates.example.org   │ AAAA │     1 │        - │
 │ fileshare.exmaple.com │ A    │     1 │        1 │
-│ www.example.com       │ AAAA │     1 │        - │
+│ video.example.org     │ A    │     1 │        - │
 └───────────────────────┴──────┴───────┴──────────┘
 TCP resets
 ┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━┓
@@ -324,7 +332,7 @@ python -m venv .venv
 | `nt backup -i hosts.yml` | Pulls `show running-config` from Cisco IOS/IOS-XE/NX-OS and Arista EOS with Netmiko into `backups/<host>/<date>.cfg`. Skips the write when nothing changed. | `--out DIR`, `--only NAME`, `--workers` |
 | `nt diff HOST` | Unified diff of the two newest backups for HOST, coloured. | `--dir DIR`, `-U N` |
 | `nt audit FILE...` | Checks for telnet on vty lines, missing `service password-encryption`, `enable password`, SSHv1, VLAN 1 on trunks, no remote syslog, no NTP, weak or unrestricted SNMP communities, unused ACLs, the HTTP server, vty lines with no ACL, and lines that never time out (`exec-timeout 0`). | `--json`, `--min-severity`, `--fail-on high` (exits 1 so CI can gate on it) |
-| `nt pcap summary FILE` | Top talkers, protocols, services, 802.1Q VLANs, DNS queries (with NXDOMAIN) and TCP resets, from pcap or pcapng. | `--top N`, `--json` |
+| `nt pcap summary FILE` | Top talkers, protocols, services, 802.1Q VLANs, the sites visited (from HTTPS server names, HTTP `Host` headers and DNS answers), DNS queries (with NXDOMAIN) and TCP resets, from pcap or pcapng. | `--top N`, `--json` |
 | `nt ping-matrix hosts.yml` | Pings every host for N rounds and reports loss, min/avg/max, jitter and a sparkline. | `--rounds N`, `--interval`, `--watch` |
 
 ### How `nt scan` names devices
@@ -351,6 +359,10 @@ devices:
 
 Passwords are never read from the file. If the named environment variable is unset, `nt backup` prompts once for each variable. For `ping-matrix`, a plain YAML list of addresses also works.
 
+### How `nt pcap` finds sites
+
+Nothing is decrypted. HTTPS connections name their server in clear text at the start of the handshake (TLS SNI), and the parser reassembles that first message when it spans several packets. Plain HTTP carries a `Host:` header. QUIC (HTTP/3) encrypts the name, so those connections are named from the DNS answers seen earlier in the same capture. Sites using Encrypted Client Hello show the provider's public name (for example `cloudflare-ech.com`) instead.
+
 ### Scanning responsibly
 
 `nt scan` only sweeps private, loopback and link-local space unless you pass `--i-own-this`. It caps a sweep at 4,096 addresses unless you raise `--max-hosts`, and `--rate` limits probes per second across all threads. ICMP goes through the system `ping` binary and TCP uses a normal `connect()`, so nothing needs root. Only scan networks you own or have permission to test.
@@ -361,7 +373,7 @@ Passwords are never read from the file. If the named environment variable is uns
 | --- | --- |
 | `examples/configs/*.cfg` | Four invented IOS configs: a neglected edge router, a core switch with sloppy trunks, an access switch with a few gaps, and a hardened router that audits clean. |
 | `examples/backups/CORE-SW1/` | Two dated backups of the same switch, a week apart, for `nt diff`. |
-| `examples/sample.pcap` | 91 invented packets: ARP, DNS (with one NXDOMAIN typo), HTTPS/HTTP/SSH sessions, refused telnet and RDP, ICMP, NTP, syslog, SNMP, OSPF hellos, tagged SIP and some IPv6. |
+| `examples/sample.pcap` | 102 invented packets: ARP, DNS (with one NXDOMAIN typo), an HTTPS session with a TLS ClientHello, an HTTP request, a QUIC stream, SSH, refused telnet and RDP, ICMP, NTP, syslog, SNMP, OSPF hellos, tagged SIP and some IPv6. |
 | `scripts/make_sample_pcap.py` | Rebuilds `sample.pcap` with Scapy. Its timestamps are fixed, so every run produces the same file byte for byte. |
 | `src/net_toolkit/data/oui.tsv.gz` | The IEEE registry of MAC address prefixes (about 40,000 vendors), used offline by `nt scan`. Rebuild it with `python scripts/update_oui.py`. |
 

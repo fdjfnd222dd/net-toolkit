@@ -89,6 +89,13 @@ def render(s: Summary, top: int) -> list:
             services.add_row(name, str(count))
         out.append(services)
 
+    if s.sites:
+        sites = _table("sites", ("site", "connections", "bytes", "seen via"))
+        for name, stats, volume in s.top_sites(top):
+            sites.add_row(name, str(stats.connections), human_bytes(volume) if volume else "-",
+                          ", ".join(sorted(stats.via)))
+        out.append(sites)
+
     dns = _table("DNS queries", ("name", "type", "count", "NXDOMAIN"))
     for (name, qtype), count in s.dns_queries.most_common(top):
         nx = s.dns_nxdomain[name]
@@ -106,5 +113,6 @@ def render(s: Summary, top: int) -> list:
 def _table(title: str, columns: tuple[str, ...]) -> Table:
     table = Table(title=f"[bold]{title}[/bold]", title_justify="left")
     for index, name in enumerate(columns):
-        table.add_column(name, justify="left" if index == 0 or name in ("to", "type", "port") else "right")
+        left = index == 0 or name in ("to", "type", "port", "seen via")
+        table.add_column(name, justify="left" if left else "right")
     return table

@@ -6,12 +6,14 @@ import pytest
 from net_toolkit import pcap
 from net_toolkit.cli import app
 from net_toolkit.commands.pcap_cmd import human_bytes
-from net_toolkit.pcap import PcapError, PcapReader, RawPacket, decode, parse_dns, summarize
+from net_toolkit.pcap import (
+    PcapError, PcapReader, RawPacket, Summary, decode, parse_dns, parse_http_host, parse_sni, summarize,
+)
 
 from .conftest import EXAMPLES
 
 scapy = pytest.importorskip("scapy.all")
-from scapy.layers.dns import DNS, DNSQR  # noqa: E402
+from scapy.layers.dns import DNS, DNSQR, DNSRR  # noqa: E402
 from scapy.layers.inet import ICMP, IP, TCP, UDP  # noqa: E402
 from scapy.layers.inet6 import IPv6, IPv6ExtHdrFragment, IPv6ExtHdrHopByHop  # noqa: E402
 from scapy.layers.l2 import ARP, Dot1Q, Ether  # noqa: E402
@@ -40,9 +42,9 @@ def write_classic(path, frames, endian="<", nano=False, linktype=1):
 class TestSample:
     def test_totals(self):
         s = summarize(SAMPLE)
-        assert (s.format, s.packets, s.truncated) == ("pcap", 91, False)
+        assert (s.format, s.packets, s.truncated) == ("pcap", 102, False)
         assert s.protocols["TCP"] == 60 and s.protocols["OSPF"] == 3 and s.protocols["ARP"] == 2
-        assert round(s.duration, 3) == 4.328
+        assert round(s.duration, 3) == 4.372
         assert s.vlans == {20: 2}
 
     def test_top_talker(self):
@@ -273,6 +275,106 @@ class TestDnsParser:
         assert (parse_dns(msg).name, parse_dns(msg).qtype) == (".", "TYPE999")
 
 
+def client_hello(name, padding=0):
+    """ClientHello with an optional padding extension placed before SNI (to make it big)."""
+    host = name.encode()
+    exts = b""
+    if padding:
+        exts += struct.pack("!HH", 21, padding) + bytes(padding)
+    exts += struct.pack("!HHHBH", 0, len(host) + 5, len(host) + 3, 0, len(host)) + host
+    body = (b"\x03\x03" + bytes(32) + b"\x00" + struct.pack("!H", 2) + b"\x13\x01" + b"\x01\x00"
+            + struct.pack("!H", len(exts)) + exts)
+    hs = b"\x01" + len(body).to_bytes(3, "big") + body
+    return b"\x16\x03\x01" + struct.pack("!H", len(hs)) + hs
+
+
+class TestSites:
+    def test_sample_sites(self):
+        s = summarize(SAMPLE)
+        sites = {name: (stats.connections, sorted(stats.via), volume) for name, stats, volume in s.top_sites(10)}
+        assert list(sites) == ["www.example.com", "video.example.org", "intranet.example.net"]
+        assert sites["www.example.com"][:2] == (1, ["tls"]) and sites["www.example.com"][2] > 30_000
+        assert sites["video.example.org"][:2] == (1, ["quic"])
+        assert sites["intranet.example.net"][:2] == (1, ["http"])
+        assert s.name_for("203.0.113.50") == "video.example.org"
+
+    def test_parse_sni(self):
+        assert parse_sni(client_hello("Mail.Example.COM")) == "mail.example.com"
+        assert parse_sni(client_hello("x.example", padding=300)) == "x.example"
+
+    @pytest.mark.parametrize("data", [
+        b"",
+        b"\x17\x03\x03\x00\x10" + bytes(16),  # application data, not a handshake
+        client_hello("a.example")[:60],  # cut off before the extensions
+        client_hello("a.example").replace(b"\x00\x00\x00\x0e\x00\x0c\x00\x00\x09", b"\x00\x0a\x00\x0e\x00\x0c\x00\x00\x09"),
+    ])
+    def test_parse_sni_rejects(self, data):
+        assert parse_sni(data) is None
+
+    def test_parse_sni_empty_or_short_name(self):
+        hello = bytearray(client_hello("abc"))
+        hello[-5:-3] = struct.pack("!H", 50)  # name length longer than the data
+        assert parse_sni(bytes(hello)) is None
+
+    @pytest.mark.parametrize("data, host", [
+        (b"GET /x HTTP/1.1\r\nhost: Shop.Example.net:8080\r\n\r\n", "shop.example.net"),
+        (b"POST / HTTP/1.1\r\nUser-Agent: t\r\nHost: [2001:db8::1]\r\n\r\n", "[2001:db8::1]"),
+        (b"GET / HTTP/1.0\r\n\r\nHost: body.example\r\n", None),
+        (b"HTTP/1.1 200 OK\r\nHost: reply.example\r\n", None),
+    ])
+    def test_http_host(self, data, host):
+        assert parse_http_host(data) == host
+
+    def run(self, *packets):
+        s = Summary("t")
+        for pkt in packets:
+            s.add(frame(pkt))
+        return s
+
+    def test_client_hello_split_across_segments(self):
+        hello = client_hello("split.example.org", padding=2000)
+        c2s = Ether(dst=MAC) / IP(src="10.0.0.2", dst="198.51.100.7") / TCP(sport=50000, dport=443, flags="PA")
+        s = self.run(c2s / hello[:1400], c2s / hello[1400:2800], c2s / hello[2800:])
+        assert list(s.sites) == ["split.example.org"] and not s._pending
+
+    def test_pending_buffer_is_capped(self, monkeypatch):
+        monkeypatch.setattr(pcap, "MAX_PENDING_HELLOS", 1)
+        hello = client_hello("x.example", padding=2000)
+        a = Ether(dst=MAC) / IP(src="10.0.0.2", dst="198.51.100.7") / TCP(sport=1, dport=443) / hello[:500]
+        b = Ether(dst=MAC) / IP(src="10.0.0.3", dst="198.51.100.7") / TCP(sport=2, dport=443) / hello[:500]
+        assert len(self.run(a, b)._pending) == 1
+
+    def test_quic_named_by_dns_or_ip(self):
+        answer = DNS(id=1, qr=1, qd=DNSQR(qname="cdn.example.com"), an=DNSRR(rrname="cdn.example.com", rdata="192.0.2.80"))
+        dns = Ether(dst=MAC) / IP(src="10.0.0.1", dst="10.0.0.2") / UDP(sport=53, dport=40000) / answer
+        initial = b"\xc3\x00\x00\x00\x01" + bytes(30)
+        q1 = Ether(dst=MAC) / IP(src="10.0.0.2", dst="192.0.2.80") / UDP(sport=50001, dport=443) / initial
+        q2 = Ether(dst=MAC) / IP(src="10.0.0.2", dst="192.0.2.99") / UDP(sport=50002, dport=443) / initial
+        short = Ether(dst=MAC) / IP(src="10.0.0.2", dst="192.0.2.80") / UDP(sport=50001, dport=443) / b"\x43abcdef"
+        s = self.run(dns, q1, q1, short, q2)
+        assert {n: st.connections for n, st in s.sites.items()} == {"cdn.example.com": 1, "192.0.2.99": 1}
+
+    def test_tls_beats_dns_for_shared_ip(self):
+        answer = DNS(id=1, qr=1, qd=DNSQR(qname="a.example"), an=DNSRR(rrname="a.example", rdata="192.0.2.5"))
+        dns = Ether(dst=MAC) / IP(src="10.0.0.1", dst="10.0.0.2") / UDP(sport=53, dport=40000) / answer
+        tls = Ether(dst=MAC) / IP(src="10.0.0.2", dst="192.0.2.5") / TCP(sport=5, dport=443) / client_hello("b.example")
+        s = self.run(dns, tls)
+        assert s.name_for("192.0.2.5") == "b.example" and s.name_for("10.9.9.9") is None
+        assert list(s.site_bytes()) == ["b.example"]
+
+    def test_dns_answers(self):
+        answer = DNS(id=1, qr=1, qd=DNSQR(qname="dual.example", qtype="AAAA"),
+                     an=[DNSRR(rrname="dual.example", type="CNAME", rdata="edge.example"),
+                         DNSRR(rrname="edge.example", type="AAAA", rdata="2001:db8::5"),
+                         DNSRR(rrname="edge.example", type="A", rdata="192.0.2.5")])
+        assert parse_dns(bytes(answer)).answers == ["2001:db8::5", "192.0.2.5"]
+        truncated = bytes(answer)[:-3]
+        assert parse_dns(truncated).answers == ["2001:db8::5"]
+        two_questions = bytes(DNS(id=1, qr=1, qd=[DNSQR(qname="a.example"), DNSQR(qname="b.example")],
+                                  an=DNSRR(rrname="a.example", rdata="192.0.2.1")))
+        assert parse_dns(two_questions).answers == ["192.0.2.1"]
+
+
 class TestSummary:
     def test_empty_capture(self, tmp_path):
         s = summarize(write_classic(tmp_path / "e.pcap", []))
@@ -291,13 +393,15 @@ class TestCli:
     def test_demo(self, runner):
         result = runner.invoke(app, ["pcap", "summary", "--demo"])
         assert result.exit_code == 0
-        for text in ("top talkers", "198.51.100.10", "fileshare.exmaple.com", "23 (telnet)", "OSPF"):
+        for text in ("top talkers", "198.51.100.10", "fileshare.exmaple.com", "23 (telnet)", "OSPF",
+                     "sites", "video.example.org", "quic"):
             assert text in result.output
 
     def test_json(self, runner):
         result = runner.invoke(app, ["pcap", "summary", str(SAMPLE), "--json", "--top", "2"])
         data = json.loads(result.output)
-        assert data["packets"] == 91 and len(data["dns_queries"]) == 2
+        assert data["packets"] == 102 and len(data["dns_queries"]) == 2
+        assert data["sites"][0] == {"site": "www.example.com", "connections": 1, "bytes": 35_355, "via": ["tls"]}
 
     def test_empty_and_truncated(self, runner, tmp_path):
         path = write_classic(tmp_path / "x.pcap", [(1.0, bytes(Ether(dst=MAC) / IP() / UDP(sport=9, dport=9)))])

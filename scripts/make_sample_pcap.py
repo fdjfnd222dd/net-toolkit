@@ -12,6 +12,7 @@ Timestamps are fixed, so re-running the script produces a byte-identical file.
 
 from __future__ import annotations
 
+import struct
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ CLIENTS = {
     "10.10.10.23": "02:00:00:0a:00:23",
 }
 DNS_SERVER, NTP_SERVER, SYSLOG = "10.10.99.53", "10.10.99.10", "10.10.99.50"
-WEB_A, WEB_B = "198.51.100.10", "203.0.113.80"
+WEB_A, WEB_B, VIDEO = "198.51.100.10", "203.0.113.80", "203.0.113.50"
 
 packets = []
 clock = START
@@ -62,21 +63,40 @@ def dns_exchange(client, name, qtype="A", answer=None, sport=40000):
          / UDP(sport=53, dport=sport) / reply, gap=0.012)
 
 
-def tcp_session(client, server, dport, sport, segments, size):
-    """Handshake, `segments` server->client data packets of `size` bytes, then FIN/ACK."""
+def client_hello(server_name: str) -> bytes:
+    """A minimal TLS 1.3 ClientHello carrying SNI and ALPN (random/session id zeroed)."""
+    name = server_name.encode()
+    sni = struct.pack("!HHHBH", 0, len(name) + 5, len(name) + 3, 0, len(name)) + name
+    alpn_list = b"\x02h2\x08http/1.1"
+    alpn = struct.pack("!HHH", 16, len(alpn_list) + 2, len(alpn_list)) + alpn_list
+    versions = struct.pack("!HHB", 43, 3, 2) + b"\x03\x04"
+    extensions = sni + alpn + versions
+    body = (b"\x03\x03" + bytes(32) + b"\x20" + bytes(32) + struct.pack("!H", 4) + b"\x13\x01\x13\x02"
+            + b"\x01\x00" + struct.pack("!H", len(extensions)) + extensions)
+    handshake = b"\x01" + len(body).to_bytes(3, "big") + body
+    return b"\x16\x03\x01" + struct.pack("!H", len(handshake)) + handshake
+
+
+def http_get(host: str) -> bytes:
+    return f"GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: lab-client\r\nAccept: */*\r\n\r\n".encode()
+
+
+def tcp_session(client, server, dport, sport, segments, size, request=b"G" * 300):
+    """Handshake, a client request, `segments` server->client packets of `size` bytes, FIN/ACK."""
     c2s = eth(client) / IP(src=client, dst=server)
     s2c = Ether(src=GW_MAC, dst=CLIENTS[client]) / IP(src=server, dst=client)
     seq, ack = 1000, 5000
     emit(c2s / TCP(sport=sport, dport=dport, flags="S", seq=seq))
     emit(s2c / TCP(sport=dport, dport=sport, flags="SA", seq=ack, ack=seq + 1), gap=0.020)
     emit(c2s / TCP(sport=sport, dport=dport, flags="A", seq=seq + 1, ack=ack + 1))
-    emit(c2s / TCP(sport=sport, dport=dport, flags="PA", seq=seq + 1, ack=ack + 1) / Raw(b"G" * 300))
+    emit(c2s / TCP(sport=sport, dport=dport, flags="PA", seq=seq + 1, ack=ack + 1) / Raw(request))
+    sent = len(request)
     ack += 1
     for _ in range(segments):
-        emit(s2c / TCP(sport=dport, dport=sport, flags="A", seq=ack, ack=seq + 301) / Raw(b"x" * size), gap=0.002)
+        emit(s2c / TCP(sport=dport, dport=sport, flags="A", seq=ack, ack=seq + 1 + sent) / Raw(b"x" * size), gap=0.002)
         ack += size
-    emit(c2s / TCP(sport=sport, dport=dport, flags="FA", seq=seq + 301, ack=ack))
-    emit(s2c / TCP(sport=dport, dport=sport, flags="FA", seq=ack, ack=seq + 302))
+    emit(c2s / TCP(sport=sport, dport=dport, flags="FA", seq=seq + 1 + sent, ack=ack))
+    emit(s2c / TCP(sport=dport, dport=sport, flags="FA", seq=ack, ack=seq + 2 + sent))
 
 
 def refused(client, server, dport, sport, mac=SW_MAC):
@@ -98,10 +118,18 @@ def build():
     dns_exchange("10.10.10.21", "www.example.com", answer=WEB_A, sport=40003)
     dns_exchange("10.10.10.23", "updates.example.org", "AAAA", answer="2001:db8:5::10", sport=40004)
     dns_exchange("10.10.10.22", "fileshare.exmaple.com", answer=None, sport=40005)
+    dns_exchange("10.10.10.23", "video.example.org", answer=VIDEO, sport=40006)
 
-    # the bulk of the bytes: one HTTPS download and a small HTTP page
-    tcp_session("10.10.10.21", WEB_A, 443, 51000, segments=24, size=1400)
-    tcp_session("10.10.10.22", WEB_B, 80, 51001, segments=4, size=900)
+    # the bulk of the bytes: one HTTPS download (TLS SNI names it) and a small HTTP page
+    tcp_session("10.10.10.21", WEB_A, 443, 51000, segments=24, size=1400, request=client_hello("www.example.com"))
+    tcp_session("10.10.10.22", WEB_B, 80, 51001, segments=4, size=900, request=http_get("intranet.example.net"))
+
+    # QUIC (HTTP/3) stream: the name inside is encrypted, so only the DNS answer above names it
+    quic_c2s = eth("10.10.10.23") / IP(src="10.10.10.23", dst=VIDEO) / UDP(sport=52000, dport=443)
+    quic_s2c = Ether(src=GW_MAC, dst=CLIENTS["10.10.10.23"]) / IP(src=VIDEO, dst="10.10.10.23") / UDP(sport=443, dport=52000)
+    emit(quic_c2s / Raw(b"\xc3\x00\x00\x00\x01" + b"\x08" + bytes(8) + b"\x00" + b"q" * 1180))
+    for _ in range(8):
+        emit(quic_s2c / Raw(b"\x43" + b"v" * 1250), gap=0.003)
 
     # admin SSH session to the core switch management SVI
     tcp_session("10.10.10.23", "10.10.99.1", 22, 51002, segments=6, size=160)
