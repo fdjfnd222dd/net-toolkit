@@ -111,3 +111,99 @@ def describe(cidr: str) -> SubnetInfo:
         scope=scope_of(network),
         ip_class=ip_class,
     )
+
+
+MAX_SPLIT = 4096  # keeps a typo like `--split 65536` from printing forever
+
+
+def split(network: Network, count: int) -> list[Network]:
+    """Carve `network` into `count` equal subnets.
+
+    Subnets only come in powers of two, so a count like 3 is rounded up to 4; the
+    caller decides how to present the spare ones.
+    """
+    if count < 1:
+        raise ValueError("split count must be at least 1")
+    if count > MAX_SPLIT:
+        raise ValueError(f"split count is capped at {MAX_SPLIT}")
+    bits = (count - 1).bit_length()  # ceil(log2(count))
+    if network.prefixlen + bits > network.max_prefixlen:
+        raise ValueError(
+            f"{network} is too small to split into {count} subnets "
+            f"(would need a /{network.prefixlen + bits})"
+        )
+    return list(network.subnets(prefixlen_diff=bits))
+
+
+@dataclass(frozen=True)
+class Allocation:
+    name: str
+    requested: int
+    subnet: ipaddress.IPv4Network
+
+    @property
+    def usable(self) -> int:
+        return self.subnet.num_addresses - 2
+
+    @property
+    def waste(self) -> int:
+        return self.usable - self.requested
+
+
+def parse_vlsm(spec: str) -> list[tuple[str, int]]:
+    """Parse `50,20,10` or `Sales=50,Eng=20,10` into (name, hosts) pairs."""
+    requests: list[tuple[str, int]] = []
+    for index, raw in enumerate(spec.split(","), start=1):
+        item = raw.strip()
+        if not item:
+            continue
+        name, _, hosts = item.rpartition("=")
+        try:
+            count = int(hosts)
+        except ValueError as exc:
+            raise ValueError(f"bad VLSM entry {item!r}: host count must be a number") from exc
+        if count < 1:
+            raise ValueError(f"bad VLSM entry {item!r}: host count must be at least 1")
+        requests.append((name.strip() or f"net{index}", count))
+    if not requests:
+        raise ValueError("VLSM spec is empty")
+    return requests
+
+
+def prefix_for_hosts(hosts: int) -> int:
+    """Smallest IPv4 prefix whose usable range (minus network + broadcast) fits `hosts`."""
+    host_bits = (hosts + 2 - 1).bit_length()  # ceil(log2(hosts + 2))
+    host_bits = max(host_bits, 2)  # never hand out a /31 or /32 from VLSM
+    return 32 - host_bits
+
+
+def vlsm(network: Network, requests: list[tuple[str, int]]) -> tuple[list[Allocation], list[Network]]:
+    """Allocate the largest request first so every block lands on its natural boundary.
+
+    Returns the allocations (largest first) and the free space left over, summarised.
+    """
+    if network.version != 4:
+        raise ValueError("VLSM allocation is IPv4 only")
+    ordered = sorted(requests, key=lambda item: item[1], reverse=True)  # stable for ties
+    cursor = int(network.network_address)
+    end = int(network.broadcast_address)
+    allocations: list[Allocation] = []
+    for name, hosts in ordered:
+        prefix = prefix_for_hosts(hosts)
+        size = 1 << (32 - prefix)
+        if prefix < network.prefixlen or cursor + size - 1 > end:
+            remaining = end - cursor + 1
+            raise ValueError(
+                f"{name} ({hosts} hosts) needs a /{prefix} ({size} addresses) but only "
+                f"{remaining} addresses remain in {network}"
+            )
+        allocations.append(Allocation(name, hosts, ipaddress.IPv4Network((cursor, prefix))))
+        cursor += size
+    free: list[Network] = []
+    if cursor <= end:
+        free = list(
+            ipaddress.summarize_address_range(
+                ipaddress.IPv4Address(cursor), ipaddress.IPv4Address(end)
+            )
+        )
+    return allocations, free
