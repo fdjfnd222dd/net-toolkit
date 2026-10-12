@@ -421,3 +421,40 @@ class TestCli:
                                              (5 * 1024**2, "5.0 MB"), (3 * 1024**4, "3072.0 GB")])
     def test_human_bytes(self, count, text):
         assert human_bytes(count) == text
+
+
+class TestConversations:
+    def test_sample(self):
+        s = summarize(SAMPLE)
+        top = s.top_conversations(3)
+        assert [(c.a, c.b, c.service) for c in top] == [
+            ("10.10.10.21", "198.51.100.10", "https"),
+            ("10.10.10.23", "203.0.113.50", "quic"),
+            ("10.10.10.22", "203.0.113.80", "http"),
+        ]
+        assert top[0].packets == 30 and top[0].bytes_ba > 30_000 and top[0].bytes_ab < 1_000
+        assert round(top[0].duration, 2) == 0.08
+
+    def test_direction_follows_first_sender(self):
+        s = Summary("t")
+        reply = Ether(dst=MAC) / IP(src="10.0.0.9", dst="10.0.0.1") / ICMP(type=0)
+        request = Ether(dst=MAC) / IP(src="10.0.0.1", dst="10.0.0.9") / ICMP(type=8)
+        for ts, pkt in ((5.0, reply), (4.0, request), (6.0, request)):
+            raw = bytes(pkt)
+            s.add(decode(RawPacket(ts, 1, raw, len(raw))))
+        [conv] = s.conversations.values()
+        assert (conv.a, conv.b, conv.packets, conv.duration) == ("10.0.0.9", "10.0.0.1", 3, 2.0)
+        assert conv.bytes_ab == len(bytes(reply)) and conv.service == "icmp"
+
+    def test_json(self, runner):
+        data = json.loads(runner.invoke(app, ["pcap", "summary", str(SAMPLE), "--json", "--top", "1"]).output)
+        [conv] = data["conversations"]
+        assert conv.pop("duration_seconds") == pytest.approx(0.084, abs=1e-3)
+        assert conv == {
+            "from": "10.10.10.21", "to": "198.51.100.10", "to_name": "www.example.com", "service": "https",
+            "packets": 30, "bytes_sent": 351, "bytes_received": 35004,
+        }
+
+    def test_quic_service_label(self):
+        pkt = frame(Ether(dst=MAC) / IP() / UDP(sport=50000, dport=443))
+        assert pkt.service == "quic"

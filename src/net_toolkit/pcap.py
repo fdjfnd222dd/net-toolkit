@@ -200,6 +200,8 @@ class Packet:
     @property
     def service(self) -> str | None:
         """Best guess at the application, from the lower well-known port."""
+        if self.proto == "UDP" and 443 in (self.sport, self.dport):
+            return "quic"  # HTTP/3; plain "https" would hide that it is UDP
         ports = [p for p in (self.sport, self.dport) if p is not None]
         known = sorted(p for p in ports if p in SERVICES)
         if known:
@@ -430,6 +432,32 @@ class SiteStats:
     via: set[str] = field(default_factory=set)
 
 
+@dataclass
+class Conversation:
+    """Traffic between two addresses; `a` is whichever side sent the first packet."""
+
+    a: str
+    b: str
+    first_ts: float
+    last_ts: float
+    packets: int = 0
+    bytes_ab: int = 0
+    bytes_ba: int = 0
+    services: Counter[str] = field(default_factory=Counter)
+
+    @property
+    def bytes(self) -> int:
+        return self.bytes_ab + self.bytes_ba
+
+    @property
+    def duration(self) -> float:
+        return self.last_ts - self.first_ts
+
+    @property
+    def service(self) -> str | None:
+        return self.services.most_common(1)[0][0] if self.services else None
+
+
 MAX_PENDING_HELLOS = 4096  # half-received ClientHellos we are willing to buffer
 
 
@@ -451,6 +479,7 @@ class Summary:
     dns_nxdomain: Counter[str] = field(default_factory=Counter)
     resets: Counter[tuple[str, str, int]] = field(default_factory=Counter)
     sites: dict[str, SiteStats] = field(default_factory=dict)
+    conversations: dict[tuple[str, str], Conversation] = field(default_factory=dict)
     ip_names: dict[str, Counter[str]] = field(default_factory=dict)  # server IP -> names seen
     _pending: dict[tuple, tuple[bytearray, int]] = field(default_factory=dict, repr=False)
     _quic_flows: set[tuple] = field(default_factory=set, repr=False)
@@ -478,6 +507,7 @@ class Summary:
             sender.packets += 1
             sender.sent += pkt.length
             self.hosts.setdefault(pkt.dst, HostStats()).received += pkt.length
+            self._converse(pkt)
         if pkt.dns and not pkt.dns.response:
             self.dns_queries[(pkt.dns.name, pkt.dns.qtype)] += 1
         if pkt.dns and pkt.dns.response and pkt.dns.rcode == 3:
@@ -491,6 +521,23 @@ class Summary:
             # the side sending RST is usually the server refusing or tearing down
             port = pkt.sport if (pkt.sport in SERVICES or pkt.sport < pkt.dport) else pkt.dport
             self.resets[(pkt.src, pkt.dst, port)] += 1
+
+    def _converse(self, pkt: Packet) -> None:
+        key = (pkt.src, pkt.dst) if pkt.src <= pkt.dst else (pkt.dst, pkt.src)  # type: ignore[operator]
+        conv = self.conversations.get(key)
+        if conv is None:
+            conv = self.conversations[key] = Conversation(pkt.src, pkt.dst, pkt.ts, pkt.ts)  # type: ignore[arg-type]
+        conv.packets += 1
+        conv.first_ts, conv.last_ts = min(conv.first_ts, pkt.ts), max(conv.last_ts, pkt.ts)
+        if pkt.src == conv.a:
+            conv.bytes_ab += pkt.length
+        else:
+            conv.bytes_ba += pkt.length
+        label = pkt.service or pkt.proto.lower()
+        conv.services[label] += 1
+
+    def top_conversations(self, n: int) -> list[Conversation]:
+        return sorted(self.conversations.values(), key=lambda c: (-c.bytes, c.a, c.b))[:n]
 
     def _name(self, address: str, name: str, weight: int = 1) -> None:
         names = self.ip_names.setdefault(address, Counter())
@@ -571,6 +618,12 @@ class Summary:
             ],
             "services": dict(self.services.most_common(top)),
             "vlans": {str(k): v for k, v in sorted(self.vlans.items())},
+            "conversations": [
+                {"from": c.a, "to": c.b, "to_name": self.name_for(c.b), "service": c.service,
+                 "packets": c.packets, "bytes_sent": c.bytes_ab, "bytes_received": c.bytes_ba,
+                 "duration_seconds": round(c.duration, 6)}
+                for c in self.top_conversations(top)
+            ],
             "sites": [
                 {"site": name, "connections": s.connections, "bytes": volume, "via": sorted(s.via)}
                 for name, s, volume in self.top_sites(top)

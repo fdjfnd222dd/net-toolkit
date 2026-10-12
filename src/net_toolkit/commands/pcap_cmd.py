@@ -77,6 +77,14 @@ def render(s: Summary, top: int) -> list:
                         human_bytes(stats.received), human_bytes(stats.total))
     out.append(talkers)
 
+    conversations = _table("conversations", ("from", "to", "service", "packets", "sent", "received", "duration"))
+    for conv in s.top_conversations(top):
+        name = s.name_for(conv.b)
+        peer = f"{conv.b}\n[dim]{name}[/dim]" if name and name != conv.b else conv.b
+        conversations.add_row(conv.a, peer, conv.service or "-", str(conv.packets), human_bytes(conv.bytes_ab),
+                              human_bytes(conv.bytes_ba), f"{conv.duration:.2f} s")
+    out.append(conversations)
+
     protocols = _table("protocols", ("protocol", "packets", "bytes", "share"))
     for proto, count in s.protocols.most_common(top):
         share = s.protocol_bytes[proto] / s.bytes * 100 if s.bytes else 0
@@ -113,6 +121,6 @@ def render(s: Summary, top: int) -> list:
 def _table(title: str, columns: tuple[str, ...]) -> Table:
     table = Table(title=f"[bold]{title}[/bold]", title_justify="left")
     for index, name in enumerate(columns):
-        left = index == 0 or name in ("to", "type", "port", "seen via")
+        left = index == 0 or name in ("to", "type", "port", "seen via", "service")
         table.add_column(name, justify="left" if left else "right")
     return table

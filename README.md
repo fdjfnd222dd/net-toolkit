@@ -226,6 +226,19 @@ top talkers
 │ 203.0.113.50  │         8 │ 10.1 KB │   1.2 KB │ 11.3 KB │
 │ 10.10.10.22   │         7 │   514 B │   4.1 KB │  4.6 KB │
 └───────────────┴───────────┴─────────┴──────────┴─────────┘
+conversations
+┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┓
+┃ from        ┃ to                   ┃ service ┃ packets ┃   sent ┃ received ┃ duration ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━┩
+│ 10.10.10.21 │ 198.51.100.10        │ https   │      30 │  351 B │  34.2 KB │   0.08 s │
+│             │ www.example.com      │         │         │        │          │          │
+│ 10.10.10.23 │ 203.0.113.50         │ quic    │       9 │ 1.2 KB │  10.1 KB │   0.02 s │
+│             │ video.example.org    │         │         │        │          │          │
+│ 10.10.10.22 │ 203.0.113.80         │ http    │      10 │  299 B │   3.8 KB │   0.04 s │
+│             │ intranet.example.net │         │         │        │          │          │
+│ 10.10.10.23 │ 10.10.99.1           │ ssh     │      12 │  516 B │   1.4 KB │   0.05 s │
+│ 10.10.10.21 │ 10.10.10.1           │ icmp    │      10 │  210 B │    210 B │   1.34 s │
+└─────────────┴──────────────────────┴─────────┴─────────┴────────┴──────────┴──────────┘
 protocols
 ┏━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━┓
 ┃ protocol ┃ packets ┃   bytes ┃ share ┃
@@ -244,7 +257,7 @@ services
 │ dns (udp)         │      13 │
 │ ssh (tcp)         │      12 │
 │ http (tcp)        │      10 │
-│ https (udp)       │       9 │
+│ quic (udp)        │       9 │
 └───────────────────┴─────────┘
 sites
 ┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┓
@@ -319,7 +332,7 @@ python -m venv .venv
 | `nt backup -i hosts.yml` | Pulls `show running-config` from Cisco IOS/IOS-XE/NX-OS and Arista EOS with Netmiko into `backups/<host>/<date>.cfg`. Skips the write when nothing changed. | `--out DIR`, `--only NAME`, `--workers` |
 | `nt diff HOST` | Unified diff of the two newest backups for HOST, coloured. | `--dir DIR`, `-U N` |
 | `nt audit FILE...` | Checks for telnet on vty lines, missing `service password-encryption`, `enable password`, SSHv1, VLAN 1 on trunks, no remote syslog, no NTP, weak or unrestricted SNMP communities, unused ACLs, the HTTP server, vty lines with no ACL, and lines that never time out (`exec-timeout 0`). | `--json`, `--min-severity`, `--fail-on high` (exits 1 so CI can gate on it) |
-| `nt pcap summary FILE` | Top talkers, protocols, services, 802.1Q VLANs, the sites visited (from HTTPS server names, HTTP `Host` headers and DNS answers), DNS queries (with NXDOMAIN) and TCP resets, from pcap or pcapng. | `--top N`, `--json` |
+| `nt pcap summary FILE` | Top talkers, conversations (who talked to whom, each direction, for how long), protocols, services, 802.1Q VLANs, the sites visited (from HTTPS server names, HTTP `Host` headers and DNS answers), DNS queries (with NXDOMAIN) and TCP resets, from pcap or pcapng. | `--top N`, `--json` |
 | `nt ping-matrix hosts.yml` | Pings every host for N rounds and reports loss, min/avg/max, jitter and a sparkline. | `--rounds N`, `--interval`, `--watch` |
 
 ### Inventory (`hosts.yml`)
