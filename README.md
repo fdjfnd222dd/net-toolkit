@@ -310,7 +310,7 @@ python -m venv .venv
 | `nt scan CIDR` | Ping plus TCP connect sweep with a progress bar. A port that answers RST still proves the host is up. | `--ports common\|22,80,8000-8010`, `--rate 100`, `--timeout`, `--no-icmp`, `--json`, `--i-own-this`, `--max-hosts` |
 | `nt backup -i hosts.yml` | Pulls `show running-config` from Cisco IOS/IOS-XE/NX-OS and Arista EOS with Netmiko into `backups/<host>/<date>.cfg`. Skips the write when nothing changed. | `--out DIR`, `--only NAME`, `--workers` |
 | `nt diff HOST` | Unified diff of the two newest backups for HOST, coloured. | `--dir DIR`, `-U N` |
-| `nt audit FILE...` | Checks for telnet on vty lines, missing `service password-encryption`, `enable password`, SSHv1, VLAN 1 on trunks, no remote syslog, no NTP, weak or unrestricted SNMP communities, unused ACLs, the HTTP server and vty lines with no ACL. | `--json`, `--min-severity`, `--fail-on high` (exits 1 so CI can gate on it) |
+| `nt audit FILE...` | Checks for telnet on vty lines, missing `service password-encryption`, `enable password`, SSHv1, VLAN 1 on trunks, no remote syslog, no NTP, weak or unrestricted SNMP communities, unused ACLs, the HTTP server, vty lines with no ACL, and lines that never time out (`exec-timeout 0`). | `--json`, `--min-severity`, `--fail-on high` (exits 1 so CI can gate on it) |
 | `nt pcap summary FILE` | Top talkers, protocols, services, 802.1Q VLANs, DNS queries (with NXDOMAIN) and TCP resets, from pcap or pcapng. | `--top N`, `--json` |
 | `nt ping-matrix hosts.yml` | Pings every host for N rounds and reports loss, min/avg/max, jitter and a sparkline. | `--rounds N`, `--interval`, `--watch` |
 

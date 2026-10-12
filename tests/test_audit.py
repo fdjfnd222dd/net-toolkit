@@ -150,6 +150,14 @@ class TestRules:
         assert rules_hit(with_lines("ip http server")) == {"http-server"}
         assert rules_hit(with_lines("no ip http server")) == set()
 
+    @pytest.mark.parametrize("timeout, hit", [
+        ("exec-timeout 0 0", True), ("exec-timeout 0", True),
+        ("exec-timeout 0 30", False), ("exec-timeout 10 0", False),
+    ])
+    def test_exec_timeout(self, timeout, hit):
+        findings = audit_text(with_lines("line con 0", f" {timeout}")).findings
+        assert [(f.rule, f.line) for f in findings] == ([("no-exec-timeout", 13)] if hit else [])
+
     def test_vty_access_class(self):
         assert rules_hit(HARDENED.replace(" access-class MGMT in\n", "")) == {"vty-no-acl", "unused-acl"}
         assert rules_hit(with_lines("line vty 5 15", " transport input none")) == set()
@@ -216,7 +224,7 @@ class TestReport:
             Severity.parse("urgent")
 
     def test_every_rule_registered_once(self):
-        assert len(audit.RULES) == len({r.__name__ for r in audit.RULES}) == 11
+        assert len(audit.RULES) == len({r.__name__ for r in audit.RULES}) == 12
 
 
 class TestCli:

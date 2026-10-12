@@ -374,6 +374,21 @@ def vty_access_class(cfg: Config) -> list[Finding]:
     ]
 
 
+@rule
+def no_exec_timeout(cfg: Config) -> list[Finding]:
+    findings = []
+    for block in cfg.blocks_matching(r"^line\s+(con|vty|aux)\b"):
+        line = block.child(r"^exec-timeout\s+0(\s+0)?\s*$")
+        if line:
+            findings.append(Finding(
+                "no-exec-timeout", Severity.LOW,
+                f"'{block.text}' never times out idle sessions",
+                "Use 'exec-timeout 10 0' (or shorter).",
+                line.number, line.text,
+            ))
+    return findings
+
+
 @dataclass
 class Report:
     source: str
